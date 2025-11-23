@@ -1,0 +1,68 @@
+name: Python Checks
+concurrency:
+  group: Python-Checks-${{ github.workflow }}-${{ github.head_ref || github.event.workflow_run.head_branch || github.run_id }}
+  cancel-in-progress: true
+
+on:
+  merge_group:
+  pull_request:
+    branches:
+      - main
+      - 'release/**'
+
+permissions:
+  contents: read
+
+jobs:
+  mypy-check:
+    # See https://runs-on.com/runners/linux/
+    # Note: Mypy seems quite optimized for x64 compared to arm64.
+    # Similarly, mypy is single-threaded and incremental, so 2cpu is sufficient.
+    runs-on: [runs-on, runner=2cpu-linux-x64, "run-id=${{ github.run_id }}-mypy-check", "extras=s3-cache"]
+
+    steps:
+      - uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # ratchet:runs-on/action@v2
+      - name: Checkout code
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # ratchet:actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # needed for pulling openapitools/openapi-generator-cli
+      # otherwise, we hit the "Unauthenticated users" limit
+      # https://docs.docker.com/docker-hub/usage/
+      - name: Login to Docker Hub
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # ratchet:docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Prepare build
+        uses: ./.github/actions/prepare-build
+        with:
+          docker-username: ${{ secrets.DOCKER_USERNAME }}
+          docker-password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Cache mypy cache
+        if: ${{ vars.DISABLE_MYPY_CACHE != 'true' }}
+        uses: runs-on/cache@50350ad4242587b6c8c2baa2e740b1bc11285ff4 # ratchet:runs-on/cache@v4
+        with:
+          path: backend/.mypy_cache
+          key: mypy-${{ runner.os }}-${{ hashFiles('**/*.py', '**/*.pyi', 'backend/pyproject.toml') }}
+          restore-keys: |
+            mypy-${{ runner.os }}-
+
+      - name: Run MyPy
+        working-directory: ./backend
+        env:
+          MYPY_FORCE_COLOR: 1
+          TERM: xterm-256color
+        run: mypy .
+
+      - name: Check import order with reorder-python-imports
+        working-directory: ./backend
+        run: |
+          find ./onyx -name "*.py" | xargs reorder-python-imports --py311-plus
+
+      - name: Check code formatting with Black
+        working-directory: ./backend
+        run: black --check .

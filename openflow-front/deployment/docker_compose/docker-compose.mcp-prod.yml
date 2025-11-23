@@ -1,0 +1,17 @@
+# Production MCP Server Configuration
+# For production deployments, the MCP server code is built into the image
+# rather than mounted as a volume. This provides better security and performance.
+#
+# Usage:
+#   docker-compose -f docker-compose.yml -f docker-compose.mcp-prod.yml up -d
+
+version: '3.8'
+
+services:
+  workflow_mcp_server:
+    build:
+      context: ../../mcp-servers/workflow-server
+      dockerfile: Dockerfile
+    volumes: []  # Override to remove volume mounts for production
+    # For production, rebuild the image when code changes:
+    # docker-compose build workflow_mcp_server && docker-compose up -d workflow_mcp_server
